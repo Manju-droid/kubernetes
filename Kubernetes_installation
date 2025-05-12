@@ -1,0 +1,123 @@
+Step 1: Update and Upgrade Ubuntu (All Nodes)
+Begin by ensuring that your system is up to date. Open a terminal and execute the following commands:
+
+sudo apt update && sudo apt upgrade -y
+
+Step 2: Disable Swap (All Nodes)
+To enhance Kubernetes performance, disable swap and set essential kernel parameters. Run the following commands on all nodes to disable all swaps:
+
+sudo swapoff -a
+sudo sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+
+Step 3: Add Kernel Parameters (All Nodes)
+Load the required kernel modules on all nodes:
+
+sudo tee /etc/modules-load.d/containerd.conf <<EOF
+overlay
+br_netfilter
+EOF
+
+sudo modprobe overlay
+sudo modprobe br_netfilter
+
+Configure the critical kernel parameters for Kubernetes using the following:
+
+sudo tee /etc/sysctl.d/kubernetes.conf <<EOF
+net.bridge.bridge-nf-call-ip6tables = 1
+net.bridge.bridge-nf-call-iptables = 1
+net.ipv4.ip_forward = 1
+EOF
+
+Then, reload the changes:
+
+sudo sysctl --system
+
+
+Article content
+
+
+Step 4: Install Containerd Runtime (All Nodes)
+We are using the containerd runtime. Install containerd and its dependencies with the following commands:
+
+sudo apt install -y curl gnupg2 software-properties-common apt-transport-https ca-certificates
+
+
+Enable the Docker repository:
+
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmour -o /etc/apt/trusted.gpg.d/docker.gpg
+sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+Update the package list and install containerd:
+
+sudo apt update
+sudo apt install -y containerd.io
+
+
+Configure containerd to start using systemd as cgroup:
+
+containerd config default | sudo tee /etc/containerd/config.toml >/dev/null 2>&1
+
+
+sudo sed -i 's/SystemdCgroup = false/SystemdCgroup = true/g' /etc/containerd/config.toml
+Restart and enable the containerd service:
+
+sudo systemctl restart containerd
+sudo systemctl enable containerd
+
+
+Step 5: Add Apt Repository for Kubernetes (All Nodes)
+Kubernetes packages are not available in the default Ubuntu 22.04 repositories. Add the Kubernetes repositories with the following commands:
+
+echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.30/deb/ /" | sudo tee /etc/apt/sources.list.d/kubernetes.list
+
+
+curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.30/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+
+
+Step 6: Install Kubectl, Kubeadm, and Kubelet (All Nodes)
+After adding the repositories, install essential Kubernetes components, including kubectl, kubelet, and kubeadm, on all nodes with the following commands:
+
+sudo apt update
+sudo apt install -y kubelet kubeadm kubectl
+sudo apt-mark hold kubelet kubeadm kubectl
+
+
+Step 7: Initialize Kubernetes Cluster with Kubeadm (Master Node)
+With all the prerequisites in place, initialize the Kubernetes cluster on the master node using the following Kubeadm command:
+
+sudo kubeadm init
+
+
+This will initiate the setup process and provide you with some essential commands to follow after the initialization completes.
+
+Make a note of the kubeadm join command for future reference.
+
+
+
+Article content
+Run the following commands on the master node to set up your kubeconfig:
+
+mkdir -p $HOME/.kube
+sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+sudo chown $(id -u):$(id -g) $HOME/.kube/config
+Next, use kubectl commands to check the cluster and node status:
+
+kubectl get nodes
+Step 8: Add Worker Nodes to the Cluster (Worker Nodes)
+On each worker node, use the kubeadm join command you noted down earlier in sudo mode:
+
+kubeadm join <master-ip>:6443 --token <your-token> --discovery-token-ca-cert-hash <your-hash>
+
+
+Article content
+Step 9: Install Kubernetes Network Plugin (Master Node)
+To enable communication between pods in the cluster, you need a network plugin. Install the Calico network plugin with the following command from the master node:
+
+kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.25.0/manifests/calico.yaml
+Step 10: Verify the Cluster and Test (Master Node)
+Finally, let’s verify whether our cluster was successfully created:
+
+kubectl get pods -n kube-system
+kubectl get nodes
+
+
+Article content
